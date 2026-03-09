@@ -155,6 +155,39 @@ def get_tomorrow_meals(dorm="haeoreum"):
     return get_diet_by_day(1, dorm)
 
 
+def get_week_data(dorm="haeoreum"):
+    """이미지 생성용 raw 데이터 반환. (config, monday, meals) 또는 str(오류)."""
+    config = DORM_CONFIG.get(dorm)
+    if not config:
+        return f"알 수 없는 기숙사입니다: {dorm}"
+
+    today = datetime.now()
+    monday = today - timedelta(days=today.weekday())
+    cache_key = (dorm, monday.strftime("%Y-%m-%d"), "raw")
+
+    cached = _get_cached(cache_key)
+    if cached:
+        return config, monday, cached
+
+    try:
+        html = _fetch_diet_html(config)
+        soup = BeautifulSoup(html, "html.parser")
+        rows = soup.select("table.week_menu_tbl tbody tr")
+        if not rows:
+            return f"[{config['name']}] 식단 데이터를 찾을 수 없습니다."
+        meals = _parse_meals(rows, config["meals"])
+        _cache[cache_key] = (time.time(), meals)
+        return config, monday, meals
+    except requests.exceptions.Timeout:
+        return "식단 서버 응답이 없습니다. 잠시 후 다시 시도해주세요."
+    except requests.exceptions.RequestException as e:
+        print(f"[crawler] 네트워크 오류: {e}")
+        return "네트워크 오류가 발생했습니다. 잠시 후 다시 시도해주세요."
+    except Exception as e:
+        print(f"[crawler] 오류: {e}")
+        return "서버 오류가 발생했습니다."
+
+
 def get_week_meals(dorm="haeoreum"):
     config = DORM_CONFIG.get(dorm)
     if not config:

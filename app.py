@@ -1,7 +1,8 @@
 import os
-from flask import Flask, request, jsonify
-from crawler import get_today_meals, get_tomorrow_meals, get_week_meals
+from flask import Flask, request, jsonify, Response
+from crawler import get_today_meals, get_tomorrow_meals, get_week_data
 from user_store import get_user_dorm, set_user_dorm
+from image_gen import generate_weekly_image
 
 DORM_NAMES = {"haeoreum": "해오름학사", "mosirae": "모시래학사"}
 
@@ -21,6 +22,23 @@ def _make_response(text, quick_replies=None):
     res = {"version": "2.0", "template": {"outputs": [{"simpleText": {"text": text}}]}}
     if quick_replies:
         res["template"]["quickReplies"] = quick_replies
+    return jsonify(res)
+
+
+def _make_image_response(image_url):
+    res = {
+        "version": "2.0",
+        "template": {
+            "outputs": [
+                {
+                    "simpleImage": {
+                        "imageUrl": image_url,
+                        "altText": "이번주 식단표",
+                    }
+                }
+            ]
+        },
+    }
     return jsonify(res)
 
 
@@ -72,8 +90,26 @@ def weekly_api():
     dorm = get_user_dorm(user_id)
     if not dorm:
         return _make_response("기숙사 등록이 필요합니다.", _NO_DORM_REPLIES)
-    result = get_week_meals(dorm=dorm)
-    return _make_response(result)
+
+    # 이미지 URL 구성 (https 강제)
+    base_url = request.host_url.replace("http://", "https://")
+    image_url = f"{base_url}api/weekly_image?dorm={dorm}"
+    return _make_image_response(image_url)
+
+
+@app.route('/api/weekly_image', methods=['GET'])
+def weekly_image():
+    dorm = request.args.get("dorm", "haeoreum")
+    result = get_week_data(dorm)
+    if isinstance(result, str):
+        return result, 500
+    config, monday, meals = result
+    try:
+        png_bytes = generate_weekly_image(config, monday, meals)
+        return Response(png_bytes, mimetype="image/png")
+    except Exception as e:
+        print(f"[image_gen] 오류: {e}")
+        return "이미지 생성 오류", 500
 
 
 @app.route('/api/myinfo', methods=['POST'])
