@@ -3,14 +3,42 @@ import io
 import os
 from datetime import timedelta
 
+_FONT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fonts")
+_FONT_FILE = os.path.join(_FONT_DIR, "NanumGothic.ttf")
+_TMP_FONT = "/tmp/NanumGothic.ttf"  # Cloud Functions writable temp
+
 _FONT_CANDIDATES = [
-    os.path.join(os.path.dirname(__file__), "fonts", "NanumGothic.ttf"),  # 프로젝트 내 (Render 빌드 복사)
+    _TMP_FONT,                                                              # Cloud Functions
+    _FONT_FILE,                                                             # 프로젝트 내
     "/usr/share/fonts/truetype/nanum/NanumGothic.ttf",                     # Ubuntu 시스템
     "/usr/share/fonts/nanum/NanumGothic.ttf",
     "C:/Windows/Fonts/malgun.ttf",                                          # Windows
     "C:/Windows/Fonts/gulim.ttc",
 ]
-_font_path = next((p for p in _FONT_CANDIDATES if os.path.exists(p)), None)
+
+
+def _ensure_font():
+    """한글 폰트 경로 반환. 없으면 GitHub에서 자동 다운로드."""
+    found = next((p for p in _FONT_CANDIDATES if os.path.exists(p)), None)
+    if found:
+        return found
+    # 저장 위치: Linux는 /tmp, Windows는 프로젝트 fonts/
+    save_path = _TMP_FONT if os.name != "nt" else _FONT_FILE
+    try:
+        import urllib.request
+        if os.name == "nt":
+            os.makedirs(_FONT_DIR, exist_ok=True)
+        url = "https://raw.githubusercontent.com/google/fonts/main/ofl/nanumgothic/NanumGothic-Regular.ttf"
+        print("[image_gen] 한글 폰트 다운로드 중...")
+        urllib.request.urlretrieve(url, save_path)
+        print("[image_gen] 폰트 다운로드 완료")
+        return save_path
+    except Exception as e:
+        print(f"[image_gen] 폰트 다운로드 실패: {e}")
+        return None
+
+
+_font_path = _ensure_font()
 
 
 def _font(size):

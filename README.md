@@ -10,10 +10,10 @@
 |------|------|
 | 백엔드 서버 | Python 3.12 + Flask 3.1 |
 | 크롤링 | Requests + BeautifulSoup4 |
-| 데이터베이스 | SQLite3 (Python 내장) |
+| 데이터베이스 | Google Cloud Firestore |
+| 이미지 생성 | Pillow |
 | 챗봇 플랫폼 | 카카오 챗봇 (구 i-kakao) |
-| 배포 | Render (Cloud PaaS) |
-| WSGI 서버 | Gunicorn |
+| 배포 | Google Cloud Functions (서버리스) |
 
 ---
 
@@ -21,11 +21,12 @@
 
 ```
 kku-diet-chatbot/
-├── app.py           # Flask 서버 및 API 엔드포인트
-├── crawler.py       # 기숙사 홈페이지 식단 크롤러
-├── user_store.py    # SQLite 기반 사용자 데이터 저장소
-├── Procfile         # Render 배포용 실행 명령 정의
+├── app.py           # Flask 서버 및 API 엔드포인트 + Cloud Functions 핸들러
+├── crawler.py       # 기숙사 홈페이지 식단 크롤러 (10분 TTL 캐시)
+├── user_store.py    # Firestore 기반 사용자 데이터 저장소
+├── image_gen.py     # 주간 식단 이미지 생성 (Pillow)
 ├── requirements.txt
+├── .gcloudignore    # Cloud Functions 배포 제외 파일 목록
 └── .gitignore
 ```
 
@@ -168,42 +169,58 @@ CREATE TABLE users (
 
 ---
 
-## 배포 방식 (Render)
+## 배포 방식 (Google Cloud Functions)
 
-이 프로젝트는 [Render](https://render.com)를 통해 클라우드에 배포됩니다.
-GitHub 저장소와 연동되어 `master` 브랜치에 푸시하면 자동으로 재배포됩니다.
+서버리스 방식으로 배포합니다. 사용자가 챗봇에 말을 걸 때만 실행되므로 비용이 거의 없고, Render 무료 플랜처럼 휴면 상태(30초 대기)가 없습니다.
 
-### 배포 구조
+### 사전 준비
 
+1. [Google Cloud Console](https://console.cloud.google.com)에서 프로젝트 생성
+2. **Cloud Functions API** 활성화
+3. **Cloud Firestore API** 활성화 → Firestore 데이터베이스 생성 (Native 모드)
+4. [Google Cloud SDK](https://cloud.google.com/sdk) 설치 후 로그인
+
+```bash
+gcloud auth login
+gcloud config set project YOUR_PROJECT_ID
 ```
-GitHub (master 브랜치)
-    │
-    └─► Render (자동 배포)
-            │
-            └─► gunicorn app:app (Procfile 기준)
+
+### 배포 명령
+
+```bash
+gcloud functions deploy kku-diet \
+  --gen2 \
+  --runtime=python312 \
+  --region=asia-northeast3 \
+  --source=. \
+  --entry-point=kku_diet \
+  --trigger-http \
+  --allow-unauthenticated \
+  --memory=512MB \
+  --timeout=60s
 ```
-
-### 환경 변수
-
-| 변수명 | 설명 |
-|--------|------|
-| `PORT` | Render가 자동 주입하는 포트 번호 (기본값 5000) |
 
 ### 코드 수정 반영 절차
 
 ```bash
-# 1. 로컬에서 코드 수정 후
+# 1. 로컬에서 코드 수정
 git add .
 git commit -m "변경 내용"
 git push origin master
 
-# 2. Render가 자동으로 감지하여 재배포 (약 1~2분 소요)
+# 2. 재배포
+gcloud functions deploy kku-diet \
+  --gen2 --runtime=python312 --region=asia-northeast3 \
+  --source=. --entry-point=kku_diet \
+  --trigger-http --allow-unauthenticated
 ```
 
-### Procfile
+### 배포 후 카카오 스킬 URL 형식
 
 ```
-web: gunicorn app:app
+https://asia-northeast3-YOUR_PROJECT_ID.cloudfunctions.net/kku-diet/api/diet
+https://asia-northeast3-YOUR_PROJECT_ID.cloudfunctions.net/kku-diet/api/weekly
+...
 ```
 
 ---

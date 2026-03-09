@@ -136,6 +136,26 @@ def settings_api():
     )
 
 
+# ── Cloud Functions 진입점 ──────────────────────────────────────
+try:
+    import functions_framework
+
+    @functions_framework.http
+    def kku_diet(request):
+        with app.test_request_context(
+            path=request.path,
+            method=request.method,
+            data=request.get_data(),
+            content_type=request.content_type,
+            headers=dict(request.headers),
+            query_string=request.query_string,
+        ):
+            return app.full_dispatch_request()
+
+except ImportError:
+    pass  # 로컬 실행 시 무시
+
+
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 5000))
     app.run(host='0.0.0.0', port=port)
