@@ -47,7 +47,7 @@ def register_haeoreum():
     if not user_id:
         return _make_response("사용자 정보를 확인할 수 없습니다.")
     set_user_dorm(user_id, "haeoreum")
-    return _make_response("해오름학사 등록 완료!\n이제 '오늘식단'을 입력해보세요.")
+    return _make_response("해오름학사 등록 완료!\n이제 '오늘학식'을 입력해보세요.")
 
 
 @app.route('/api/register/mosirae', methods=['POST'])
@@ -56,7 +56,7 @@ def register_mosirae():
     if not user_id:
         return _make_response("사용자 정보를 확인할 수 없습니다.")
     set_user_dorm(user_id, "mosirae")
-    return _make_response("모시래학사 등록 완료!\n이제 '오늘식단'을 입력해보세요.")
+    return _make_response("모시래학사 등록 완료!\n이제 '오늘학식'을 입력해보세요.")
 
 
 @app.route('/api/diet', methods=['POST'])
