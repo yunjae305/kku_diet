@@ -10,13 +10,17 @@ DORM_CONFIG = {
         "name": "해오름학사",
         "dorm_type": "H",
         "params": {"menuSeq": "43885", "bachelor": "HA"},
+        "meals": ["점심", "저녁"],
     },
     "mosirae": {
         "name": "모시래학사",
         "dorm_type": "M",
         "params": {"menuSeq": "43860", "bachelor": "MO"},
+        "meals": ["아침", "점심", "저녁"],
     },
 }
+
+_MEAL_EMOJI = {"아침": "🌅", "점심": "🍴", "저녁": "🌙"}
 
 _HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
@@ -63,6 +67,39 @@ def _fetch_diet_html(config: dict) -> str:
     return response.text
 
 
+def _parse_meals(rows, meal_types, weekday=None):
+    """HTML rows에서 식사 데이터를 파싱합니다.
+    weekday가 None이면 주간 전체(5일치) dict 반환, 아니면 해당 요일 dict 반환.
+    """
+    if weekday is not None:
+        data = {m: "식단 정보 없음" for m in meal_types}
+    else:
+        data = {i: {m: "식단 정보 없음" for m in meal_types} for i in range(5)}
+
+    for row in rows:
+        header = row.find("th")
+        if not header:
+            continue
+        header_text = header.get_text(strip=True)
+        cells = row.find_all("td")
+
+        matched_meal = next((m for m in meal_types if m in header_text), None)
+        if not matched_meal:
+            continue
+
+        if weekday is not None:
+            if len(cells) > weekday:
+                text = "\n".join(line.strip() for line in cells[weekday].get_text(separator="\n").split("\n") if line.strip())
+                data[matched_meal] = text or "식단 정보 없음"
+        else:
+            for i in range(5):
+                if len(cells) > i:
+                    text = "\n".join(line.strip() for line in cells[i].get_text(separator="\n").split("\n") if line.strip())
+                    data[i][matched_meal] = text or "식단 정보 없음"
+
+    return data
+
+
 def get_diet_by_day(day_offset=0, dorm="haeoreum"):
     config = DORM_CONFIG.get(dorm)
     if not config:
@@ -88,25 +125,15 @@ def get_diet_by_day(day_offset=0, dorm="haeoreum"):
         if not rows:
             return f"[{config['name']}] 식단 데이터를 찾을 수 없습니다."
 
-        lunch = "식단 정보 없음"
-        dinner = "식단 정보 없음"
+        meal_types = config["meals"]
+        data = _parse_meals(rows, meal_types, weekday=weekday)
 
-        for row in rows:
-            header = row.find("th")
-            if not header:
-                continue
-            header_text = header.get_text(strip=True)
-            cells = row.find_all("td")
+        lines = [f"[{config['name']} {target_date.strftime('%m/%d')} 식단]"]
+        for meal in meal_types:
+            emoji = _MEAL_EMOJI[meal]
+            lines.append(f"\n{emoji} {meal}:\n{data[meal]}")
 
-            if "점심" in header_text and len(cells) > weekday:
-                lunch = cells[weekday].get_text(separator="\n").strip()
-            elif "저녁" in header_text and len(cells) > weekday:
-                dinner = cells[weekday].get_text(separator="\n").strip()
-
-        lunch = "\n".join(line.strip() for line in lunch.split("\n") if line.strip())
-        dinner = "\n".join(line.strip() for line in dinner.split("\n") if line.strip())
-
-        result = f"[{config['name']} {target_date.strftime('%m/%d')} 식단]\n\n🍴 점심:\n{lunch}\n\n🌙 저녁:\n{dinner}"
+        result = "\n".join(lines)
         _cache[cache_key] = (time.time(), result)
         return result
 
@@ -149,51 +176,23 @@ def get_week_meals(dorm="haeoreum"):
         if not rows:
             return f"[{config['name']}] 식단 데이터를 찾을 수 없습니다."
 
-        meals = {i: {"lunch": "식단 정보 없음", "dinner": "식단 정보 없음"} for i in range(5)}
-
-        for row in rows:
-            header = row.find("th")
-            if not header:
-                continue
-            header_text = header.get_text(strip=True)
-            cells = row.find_all("td")
-
-            for i in range(5):
-                if len(cells) > i:
-                    text = "\n".join(
-                        line.strip() for line in cells[i].get_text(separator="\n").split("\n") if line.strip()
-                    )
-                    if "점심" in header_text:
-                        meals[i]["lunch"] = text
-                    elif "저녁" in header_text:
-                        meals[i]["dinner"] = text
+        meal_types = config["meals"]
+        meals = _parse_meals(rows, meal_types)
 
         day_names = ["월", "화", "수", "목", "금"]
-        def _trim(text, max_items=5):
-            if text == "식단 정보 없음":
-                return text
-            items = text.split("\n")
-            trimmed = "\n".join(items[:max_items])
-            if len(items) > max_items:
-                trimmed += f"\n외 {len(items) - max_items}가지"
-            return trimmed
-
-        cards = []
+        lines = [f"[{config['name']} 이번주 식단]\n"]
         for i in range(5):
             date = monday + timedelta(days=i)
-            lunch = _trim(meals[i]["lunch"])
-            dinner = _trim(meals[i]["dinner"])
-            desc = f"🍴 점심\n{lunch}\n\n🌙 저녁\n{dinner}"
-            cards.append({
-                "title": f"{day_names[i]} ({date.strftime('%m/%d')})",
-                "description": desc,
-                "thumbnail": {
-                    "imageUrl": "https://i.ibb.co/fdHxpF6Y/Authority-Mark.jpg"
-                },
-            })
+            lines.append(f"📅 {day_names[i]} ({date.strftime('%m/%d')})")
+            for meal in meal_types:
+                emoji = _MEAL_EMOJI[meal]
+                lines.append(f"{emoji} {meals[i][meal]}")
+            if i < 4:
+                lines.append("")
 
-        _cache[cache_key] = (time.time(), cards)
-        return cards
+        result = "\n".join(lines)
+        _cache[cache_key] = (time.time(), result)
+        return result
 
     except requests.exceptions.Timeout:
         return "식단 서버 응답이 없습니다. 잠시 후 다시 시도해주세요."

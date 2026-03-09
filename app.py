@@ -24,23 +24,6 @@ def _make_response(text, quick_replies=None):
     return jsonify(res)
 
 
-def _make_carousel_response(cards):
-    res = {
-        "version": "2.0",
-        "template": {
-            "outputs": [
-                {
-                    "carousel": {
-                        "type": "basicCard",
-                        "items": cards,
-                    }
-                }
-            ]
-        },
-    }
-    return jsonify(res)
-
-
 @app.route('/api/register/haeoreum', methods=['POST'])
 def register_haeoreum():
     user_id, _ = _get_user_info()
@@ -89,10 +72,8 @@ def weekly_api():
     dorm = get_user_dorm(user_id)
     if not dorm:
         return _make_response("기숙사 등록이 필요합니다.", _NO_DORM_REPLIES)
-    cards = get_week_meals(dorm=dorm)
-    if isinstance(cards, str):
-        return _make_response(cards)
-    return _make_carousel_response(cards)
+    result = get_week_meals(dorm=dorm)
+    return _make_response(result)
 
 
 @app.route('/api/myinfo', methods=['POST'])
