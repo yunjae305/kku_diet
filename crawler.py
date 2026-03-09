@@ -169,14 +169,21 @@ def get_week_meals(dorm="haeoreum"):
                         meals[i]["dinner"] = text
 
         day_names = ["월", "화", "수", "목", "금"]
+        def _trim(text, max_items=5):
+            if text == "식단 정보 없음":
+                return text
+            items = text.split("\n")
+            trimmed = "\n".join(items[:max_items])
+            if len(items) > max_items:
+                trimmed += f"\n외 {len(items) - max_items}가지"
+            return trimmed
+
         cards = []
         for i in range(5):
             date = monday + timedelta(days=i)
-            lunch = ", ".join(meals[i]["lunch"].split("\n")) if meals[i]["lunch"] != "식단 정보 없음" else "식단 정보 없음"
-            dinner = ", ".join(meals[i]["dinner"].split("\n")) if meals[i]["dinner"] != "식단 정보 없음" else "식단 정보 없음"
+            lunch = _trim(meals[i]["lunch"])
+            dinner = _trim(meals[i]["dinner"])
             desc = f"🍴 점심\n{lunch}\n\n🌙 저녁\n{dinner}"
-            if len(desc) > 230:
-                desc = desc[:227] + "..."
             cards.append({
                 "title": f"{day_names[i]} ({date.strftime('%m/%d')})",
                 "description": desc,
