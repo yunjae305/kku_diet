@@ -1,208 +1,192 @@
-"""
-건국대학교 글로컬캠퍼스 기숙사 식단 크롤러
-해오름학사 + 모시래학사 지원
-"""
-
 import requests
 from bs4 import BeautifulSoup
 from datetime import datetime, timedelta
-from typing import Optional
+import time
 
-# 상수 정의
-BASE_URL = "https://dorm.kku.ac.kr/weekly_diet.do"
+BASE_URL = "https://dorm.kku.ac.kr"
 
-# 기숙사별 설정
 DORM_CONFIG = {
     "haeoreum": {
         "name": "해오름학사",
-        "short": "해오름",
-        "main_url": "https://dorm.kku.ac.kr/main.do?dormType=H",
+        "dorm_type": "H",
         "params": {"menuSeq": "43885", "bachelor": "HA"},
-        "referer": "https://dorm.kku.ac.kr/main.do?dormType=H"
     },
     "mosirae": {
         "name": "모시래학사",
-        "short": "모시래",
-        "main_url": "https://dorm.kku.ac.kr/main.do?dormType=M",
+        "dorm_type": "M",
         "params": {"menuSeq": "43860", "bachelor": "MO"},
-        "referer": "https://dorm.kku.ac.kr/main.do?dormType=M"
-    }
+    },
 }
 
-# 기본 헤더 (Referer는 동적으로 설정)
-BASE_HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-    "Accept-Language": "ko-KR,ko;q=0.9,en;q=0.8",
+_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+    "Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8",
 }
 
-# 요일 매핑 (월=0 ~ 일=6)
-WEEKDAY_NAMES = ["월", "화", "수", "목", "금", "토", "일"]
-
-# 식사 타입별 행 인덱스 (tbody 내 tr 순서)
-MEAL_ROW_INDEX = {
-    "조식": 0,
-    "점심": 1,
-    "석식": 2
-}
+# TTL 캐시: (dorm, date_str) -> (timestamp, result)
+_cache: dict = {}
+_CACHE_TTL = 600  # 10분
 
 
-def get_diet(day_offset: int = 0, meal_type: str = "점심", dorm: str = "haeoreum") -> str:
-    """
-    식단 정보를 크롤링하여 반환합니다.
+def _get_cached(key):
+    if key in _cache:
+        ts, value = _cache[key]
+        if time.time() - ts < _CACHE_TTL:
+            return value
+        del _cache[key]
+    return None
 
-    Args:
-        day_offset: 오늘 기준 날짜 오프셋 (0=오늘, 1=내일, -1=어제)
-        meal_type: 식사 종류 ("조식", "점심", "석식")
-        dorm: 기숙사 종류 ("haeoreum" 또는 "mosirae")
 
-    Returns:
-        포맷팅된 식단 정보 문자열
-    """
-    # 기숙사 설정 가져오기
-    config = DORM_CONFIG.get(dorm, DORM_CONFIG["haeoreum"])
-    dorm_name = config["short"]
+def _fetch_diet_html(config: dict) -> str:
+    """세션을 통해 식단 페이지 HTML을 가져옵니다."""
+    session = requests.Session()
+    session.headers.update(_HEADERS)
+    dorm_type = config["dorm_type"]
+
+    # 1) landing 방문 → JSESSIONID 획득
+    session.get(f"{BASE_URL}/landing.do", timeout=10)
+
+    # 2) 기숙사 메인 페이지 방문 → dormType 세션 설정
+    main_url = f"{BASE_URL}/main.do?dormType={dorm_type}"
+    session.get(main_url, headers={"Referer": f"{BASE_URL}/landing.do"}, timeout=10)
+
+    # 3) 식단 페이지 요청
+    diet_url = f"{BASE_URL}/weekly_diet.do"
+    response = session.get(
+        diet_url,
+        params=config["params"],
+        headers={"Referer": main_url},
+        timeout=10,
+    )
+    response.encoding = "utf-8"
+    return response.text
+
+
+def get_diet_by_day(day_offset=0, dorm="haeoreum"):
+    config = DORM_CONFIG.get(dorm)
+    if not config:
+        return f"알 수 없는 기숙사입니다: {dorm}"
 
     target_date = datetime.now() + timedelta(days=day_offset)
-    weekday = target_date.weekday()  # 월=0 ~ 일=6
-    date_str = target_date.strftime("%m월 %d일")
-    day_name = WEEKDAY_NAMES[weekday]
+    weekday = target_date.weekday()  # 0:월 ~ 6:일
 
-    # 주말 체크 (토=5, 일=6) - 모시래는 주말에도 운영
-    if dorm == "haeoreum" and weekday >= 5:
-        return f"[{dorm_name}] {date_str}({day_name})은 식단이 없습니다."
+    if weekday > 4:
+        return f"[{config['name']}] 주말에는 식단이 없습니다."
+
+    date_str = target_date.strftime("%Y-%m-%d")
+    cache_key = (dorm, date_str)
+    cached = _get_cached(cache_key)
+    if cached:
+        return cached
 
     try:
-        # 헤더 설정
-        headers = BASE_HEADERS.copy()
-        headers["Referer"] = config["referer"]
+        html = _fetch_diet_html(config)
+        soup = BeautifulSoup(html, "html.parser")
 
-        # 세션으로 접근 (메인 페이지 먼저 방문 필요)
-        session = requests.Session()
-        session.get(config["main_url"], headers=headers, timeout=10)
+        rows = soup.select("table.week_menu_tbl tbody tr")
+        if not rows:
+            return f"[{config['name']}] 식단 데이터를 찾을 수 없습니다."
 
-        # 요청
-        response = session.get(BASE_URL, params=config["params"], headers=headers, timeout=10)
-        response.raise_for_status()
-        response.encoding = 'utf-8'
+        lunch = "식단 정보 없음"
+        dinner = "식단 정보 없음"
 
-        soup = BeautifulSoup(response.text, 'html.parser')
+        for row in rows:
+            header = row.find("th")
+            if not header:
+                continue
+            header_text = header.get_text(strip=True)
+            cells = row.find_all("td")
 
-        # 식단 테이블 찾기
-        table = soup.find('table', class_='week_menu_tbl')
-        if not table:
-            return f"[{dorm_name}] 식단 테이블을 찾을 수 없습니다."
+            if "점심" in header_text and len(cells) > weekday:
+                lunch = cells[weekday].get_text(separator="\n").strip()
+            elif "저녁" in header_text and len(cells) > weekday:
+                dinner = cells[weekday].get_text(separator="\n").strip()
 
-        tbody = table.find('tbody')
-        if not tbody:
-            return f"[{dorm_name}] 식단 데이터를 찾을 수 없습니다."
+        lunch = "\n".join(line.strip() for line in lunch.split("\n") if line.strip())
+        dinner = "\n".join(line.strip() for line in dinner.split("\n") if line.strip())
 
-        rows = tbody.find_all('tr')
-        meal_row_idx = MEAL_ROW_INDEX.get(meal_type, 1)
+        result = f"[{config['name']} {target_date.strftime('%m/%d')} 식단]\n\n🍴 점심:\n{lunch}\n\n🌙 저녁:\n{dinner}"
+        _cache[cache_key] = (time.time(), result)
+        return result
 
-        if meal_row_idx >= len(rows):
-            return f"[{dorm_name}] {meal_type} 정보를 찾을 수 없습니다."
-
-        meal_row = rows[meal_row_idx]
-        cells = meal_row.find_all('td')
-
-        # 요일에 해당하는 셀 선택 (월=0 ~ 일=6)
-        if weekday >= len(cells):
-            return f"[{dorm_name}] {date_str}({day_name}) {meal_type} 정보가 없습니다."
-
-        target_cell = cells[weekday]
-
-        # <br> 태그를 줄바꿈으로 변환하여 메뉴 추출
-        menu_text = _parse_menu_cell(target_cell)
-
-        if not menu_text:
-            return f"[{dorm_name}] {date_str}({day_name}) {meal_type} 식단이 등록되지 않았습니다."
-
-        # 결과 포맷팅
-        return _format_response(date_str, day_name, meal_type, menu_text, dorm_name)
-
-    except requests.Timeout:
-        return f"[{dorm_name}] 서버 응답 시간이 초과되었습니다.\n잠시 후 다시 시도해주세요."
-    except requests.RequestException:
-        return f"[{dorm_name}] 식단 정보를 불러오는 중 오류가 발생했습니다.\n잠시 후 다시 시도해주세요."
-    except Exception:
-        return f"[{dorm_name}] 식단 조회 중 문제가 발생했습니다.\n잠시 후 다시 시도해주세요."
+    except requests.exceptions.Timeout:
+        return "식단 서버 응답이 없습니다. 잠시 후 다시 시도해주세요."
+    except requests.exceptions.RequestException as e:
+        print(f"[crawler] 네트워크 오류: {e}")
+        return "네트워크 오류가 발생했습니다. 잠시 후 다시 시도해주세요."
+    except Exception as e:
+        print(f"[crawler] 오류: {e}")
+        return "서버 오류가 발생했습니다. 터미널을 확인해주세요."
 
 
-def _parse_menu_cell(cell) -> Optional[str]:
-    """
-    셀 내용을 파싱하여 메뉴 텍스트를 추출합니다.
-    """
-    text = cell.get_text(separator='\n')
-    lines = [line.strip() for line in text.split('\n')]
-    lines = [line for line in lines if line]
-
-    if not lines:
-        return None
-
-    return '\n'.join(lines)
+def get_today_meals(dorm="haeoreum"):
+    return get_diet_by_day(0, dorm)
 
 
-def _format_response(date_str: str, day_name: str, meal_type: str, menu_text: str, dorm_name: str = "") -> str:
-    """
-    카카오톡에 보기 좋게 응답을 포맷팅합니다.
-    """
-    if dorm_name:
-        header = f"[ {dorm_name} {date_str}({day_name}) {meal_type} ]"
-    else:
-        header = f"[ {date_str}({day_name}) {meal_type} ]"
-    divider = "─" * 20
-
-    return f"{header}\n{divider}\n{menu_text}"
+def get_tomorrow_meals(dorm="haeoreum"):
+    return get_diet_by_day(1, dorm)
 
 
-# === 해오름학사 편의 함수 ===
+def get_week_meals(dorm="haeoreum"):
+    config = DORM_CONFIG.get(dorm)
+    if not config:
+        return f"알 수 없는 기숙사입니다: {dorm}"
 
-def get_daily_meals(day_offset: int = 0, dorm: str = "haeoreum") -> str:
-    """해당 날짜의 점심과 저녁 메뉴를 함께 반환합니다."""
-    lunch = get_diet(day_offset=day_offset, meal_type="점심", dorm=dorm)
-    dinner = get_diet(day_offset=day_offset, meal_type="석식", dorm=dorm)
-    return f"{lunch}\n\n{dinner}"
+    today = datetime.now()
+    monday = today - timedelta(days=today.weekday())
+    cache_key = (dorm, monday.strftime("%Y-%m-%d"), "week")
 
+    cached = _get_cached(cache_key)
+    if cached:
+        return cached
 
-def get_today_meals(dorm: str = "haeoreum") -> str:
-    """오늘 점심 + 저녁 메뉴를 반환합니다."""
-    return get_daily_meals(day_offset=0, dorm=dorm)
+    try:
+        html = _fetch_diet_html(config)
+        soup = BeautifulSoup(html, "html.parser")
 
+        rows = soup.select("table.week_menu_tbl tbody tr")
+        if not rows:
+            return f"[{config['name']}] 식단 데이터를 찾을 수 없습니다."
 
-def get_tomorrow_meals(dorm: str = "haeoreum") -> str:
-    """내일 점심 + 저녁 메뉴를 반환합니다."""
-    return get_daily_meals(day_offset=1, dorm=dorm)
+        meals = {i: {"lunch": "식단 정보 없음", "dinner": "식단 정보 없음"} for i in range(5)}
 
+        for row in rows:
+            header = row.find("th")
+            if not header:
+                continue
+            header_text = header.get_text(strip=True)
+            cells = row.find_all("td")
 
-# === 해오름학사 전용 ===
+            for i in range(5):
+                if len(cells) > i:
+                    text = "\n".join(
+                        line.strip() for line in cells[i].get_text(separator="\n").split("\n") if line.strip()
+                    )
+                    if "점심" in header_text:
+                        meals[i]["lunch"] = text
+                    elif "저녁" in header_text:
+                        meals[i]["dinner"] = text
 
-def get_haeoreum_today() -> str:
-    """해오름학사 오늘 식단"""
-    return get_today_meals(dorm="haeoreum")
+        day_names = ["월", "화", "수", "목", "금"]
+        cards = []
+        for i in range(5):
+            date = monday + timedelta(days=i)
+            lunch = ", ".join(meals[i]["lunch"].split("\n")) if meals[i]["lunch"] != "식단 정보 없음" else "식단 정보 없음"
+            dinner = ", ".join(meals[i]["dinner"].split("\n")) if meals[i]["dinner"] != "식단 정보 없음" else "식단 정보 없음"
+            cards.append({
+                "title": f"{day_names[i]} ({date.strftime('%m/%d')})",
+                "description": f"🍴 점심\n{lunch}\n\n🌙 저녁\n{dinner}",
+            })
 
+        _cache[cache_key] = (time.time(), cards)
+        return cards
 
-def get_haeoreum_tomorrow() -> str:
-    """해오름학사 내일 식단"""
-    return get_tomorrow_meals(dorm="haeoreum")
-
-
-# === 모시래학사 전용 ===
-
-def get_mosirae_today() -> str:
-    """모시래학사 오늘 식단"""
-    return get_today_meals(dorm="mosirae")
-
-
-def get_mosirae_tomorrow() -> str:
-    """모시래학사 내일 식단"""
-    return get_tomorrow_meals(dorm="mosirae")
-
-
-# 테스트용
-if __name__ == "__main__":
-    print("=== 해오름학사 오늘 ===")
-    print(get_haeoreum_today())
-    print()
-    print("=== 모시래학사 오늘 ===")
-    print(get_mosirae_today())
+    except requests.exceptions.Timeout:
+        return "식단 서버 응답이 없습니다. 잠시 후 다시 시도해주세요."
+    except requests.exceptions.RequestException as e:
+        print(f"[crawler] 네트워크 오류: {e}")
+        return "네트워크 오류가 발생했습니다. 잠시 후 다시 시도해주세요."
+    except Exception as e:
+        print(f"[crawler] 오류: {e}")
+        return "서버 오류가 발생했습니다. 터미널을 확인해주세요."
