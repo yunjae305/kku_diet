@@ -4,3 +4,5 @@ __pycache__/
 .env
 .vscode/
 user_data.json
+user_data.json.migrated
+users.db
