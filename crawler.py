@@ -180,6 +180,9 @@ def get_week_meals(dorm="haeoreum"):
             cards.append({
                 "title": f"{day_names[i]} ({date.strftime('%m/%d')})",
                 "description": desc,
+                "thumbnail": {
+                    "imageUrl": "https://i.ibb.co/fdHxpF6Y/Authority-Mark.jpg"
+                },
             })
 
         _cache[cache_key] = (time.time(), cards)
