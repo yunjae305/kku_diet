@@ -4,9 +4,11 @@ import os
 from datetime import timedelta
 
 _FONT_CANDIDATES = [
-    "/usr/share/fonts/truetype/nanum/NanumGothic.ttf",   # Render (Ubuntu)
-    "C:/Windows/Fonts/malgun.ttf",                         # Windows
-    "C:/Windows/Fonts/gulim.ttc",                          # Windows fallback
+    os.path.join(os.path.dirname(__file__), "fonts", "NanumGothic.ttf"),  # 프로젝트 내 (Render 빌드 복사)
+    "/usr/share/fonts/truetype/nanum/NanumGothic.ttf",                     # Ubuntu 시스템
+    "/usr/share/fonts/nanum/NanumGothic.ttf",
+    "C:/Windows/Fonts/malgun.ttf",                                          # Windows
+    "C:/Windows/Fonts/gulim.ttc",
 ]
 _font_path = next((p for p in _FONT_CANDIDATES if os.path.exists(p)), None)
 
