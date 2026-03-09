@@ -12,7 +12,8 @@
 | 크롤링 | Requests + BeautifulSoup4 |
 | 데이터베이스 | SQLite3 (Python 내장) |
 | 챗봇 플랫폼 | 카카오 챗봇 (구 i-kakao) |
-| 터널링 | ngrok (로컬 서버 외부 노출) |
+| 배포 | Render (Cloud PaaS) |
+| WSGI 서버 | Gunicorn |
 
 ---
 
@@ -20,9 +21,10 @@
 
 ```
 kku-diet-chatbot/
-├── app.py          # Flask 서버 및 API 엔드포인트
-├── crawler.py      # 기숙사 홈페이지 식단 크롤러
-├── user_store.py   # SQLite 기반 사용자 데이터 저장소
+├── app.py           # Flask 서버 및 API 엔드포인트
+├── crawler.py       # 기숙사 홈페이지 식단 크롤러
+├── user_store.py    # SQLite 기반 사용자 데이터 저장소
+├── Procfile         # Render 배포용 실행 명령 정의
 ├── requirements.txt
 └── .gitignore
 ```
@@ -67,6 +69,7 @@ kku-diet-chatbot/
 - 요일별 카드 5장(월~금)을 슬라이드 형태로 표시
 - 각 카드에 해당 날짜의 점심·저녁 식단 표시
 - 식단이 없는 날(공휴일 등)은 "식단 정보 없음" 표시
+- 카카오톡 basicCard description 230자 제한 준수
 
 **카드 형태:**
 ```
@@ -112,7 +115,7 @@ kku-diet-chatbot/
 
 ## 크롤링 방식
 
-카카오 기숙사 홈페이지(`dorm.kku.ac.kr`)는 세션 없이 직접 접근 시 `landing.do`로 리다이렉트됩니다.
+기숙사 홈페이지(`dorm.kku.ac.kr`)는 세션 없이 직접 접근 시 `landing.do`로 리다이렉트됩니다.
 이를 해결하기 위해 아래 3단계 세션 흐름을 구현했습니다.
 
 ```
@@ -142,17 +145,42 @@ CREATE TABLE users (
 
 ---
 
-## 실행 방법
+## 배포 방식 (Render)
+
+이 프로젝트는 [Render](https://render.com)를 통해 클라우드에 배포됩니다.
+GitHub 저장소와 연동되어 `master` 브랜치에 푸시하면 자동으로 재배포됩니다.
+
+### 배포 구조
+
+```
+GitHub (master 브랜치)
+    │
+    └─► Render (자동 배포)
+            │
+            └─► gunicorn app:app (Procfile 기준)
+```
+
+### 환경 변수
+
+| 변수명 | 설명 |
+|--------|------|
+| `PORT` | Render가 자동 주입하는 포트 번호 (기본값 5000) |
+
+### 코드 수정 반영 절차
 
 ```bash
-# 의존성 설치
-pip install -r requirements.txt
+# 1. 로컬에서 코드 수정 후
+git add .
+git commit -m "변경 내용"
+git push origin master
 
-# 서버 실행
-python app.py
+# 2. Render가 자동으로 감지하여 재배포 (약 1~2분 소요)
+```
 
-# 외부 접속용 터널링 (별도 터미널)
-ngrok http 5000
+### Procfile
+
+```
+web: gunicorn app:app
 ```
 
 ---
