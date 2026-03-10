@@ -18,5 +18,6 @@ jobs:
         run: pip install -r requirements.txt
       - name: Send Discord notification
         env:
-          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          DISCORD_WEBHOOK_HAEOREUM: ${{ secrets.DISCORD_WEBHOOK_HAEOREUM }}
+          DISCORD_WEBHOOK_MOSIRAE: ${{ secrets.DISCORD_WEBHOOK_MOSIRAE }}
         run: python notify.py
