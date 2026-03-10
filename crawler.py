@@ -12,12 +12,14 @@ DORM_CONFIG = {
         "dorm_type": "H",
         "params": {"menuSeq": "43885", "bachelor": "HA"},
         "meals": ["점심", "저녁"],
+        "has_weekend": False,
     },
     "mosirae": {
         "name": "모시래학사",
         "dorm_type": "M",
         "params": {"menuSeq": "43860", "bachelor": "MO"},
         "meals": ["아침", "점심", "저녁"],
+        "has_weekend": True,
     },
 }
 
@@ -124,7 +126,7 @@ def get_diet_by_day(day_offset=0, dorm="haeoreum"):
     target_date = datetime.now() + timedelta(days=day_offset)
     weekday = target_date.weekday()  # 0:월 ~ 6:일
 
-    if weekday > 4:
+    if weekday > 4 and not config.get("has_weekend"):
         return f"[{config['name']}] 주말에는 식단이 없습니다."
 
     date_str = target_date.strftime("%Y-%m-%d")
