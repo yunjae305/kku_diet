@@ -1,6 +1,8 @@
 import requests
 from bs4 import BeautifulSoup
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+
+KST = timezone(timedelta(hours=9))
 import time
 
 BASE_URL = "https://dorm.kku.ac.kr"
@@ -123,7 +125,7 @@ def get_diet_by_day(day_offset=0, dorm="haeoreum"):
     if not config:
         return f"알 수 없는 기숙사입니다: {dorm}"
 
-    target_date = datetime.now() + timedelta(days=day_offset)
+    target_date = datetime.now(KST) + timedelta(days=day_offset)
     weekday = target_date.weekday()  # 0:월 ~ 6:일
 
     if weekday > 4 and not config.get("has_weekend"):
@@ -183,7 +185,7 @@ def get_week_data(dorm="haeoreum"):
     if not config:
         return f"알 수 없는 기숙사입니다: {dorm}"
 
-    today = datetime.now()
+    today = datetime.now(KST)
     monday = today - timedelta(days=today.weekday())
     cache_key = (dorm, monday.strftime("%Y-%m-%d"), "raw")
 
