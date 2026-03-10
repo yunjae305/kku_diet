@@ -4,6 +4,7 @@ on:
   schedule:
     - cron: '0 15 * * *'  # KST 00:00
     - cron: '0 23 * * *'  # KST 08:00
+    - cron: '30 5 * * *'  # KST 14:30 (테스트용)
   workflow_dispatch:
 
 jobs:
