@@ -1,7 +1,9 @@
 from PIL import Image, ImageDraw, ImageFont
 import io
 import os
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
+
+KST = timezone(timedelta(hours=9))
 
 _FONT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fonts")
 _FONT_FILE = os.path.join(_FONT_DIR, "NanumGothic.ttf")
@@ -108,7 +110,7 @@ def generate_weekly_image(config, monday, meals):
     """
     meal_types = config["meals"]
     day_names = ["월", "화", "수", "목", "금"]
-    today_wd = monday.now().weekday()  # 오늘 요일 (0=월)
+    today_wd = datetime.now(KST).weekday()  # 오늘 요일 (0=월)
 
     font_cell  = _font(11)
     font_head  = _font(13)
