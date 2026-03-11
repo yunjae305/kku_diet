@@ -10,7 +10,7 @@
 |------|------|
 | 백엔드 서버 | Python 3.12 + Flask 3.1 |
 | 크롤링 | Requests + BeautifulSoup4 |
-| 데이터베이스 | SQLite (`users.db`) |
+| 데이터베이스 | MongoDB Atlas |
 | 이미지 생성 | Pillow |
 | 챗봇 플랫폼 | 카카오 챗봇 (구 i-kakao) |
 | 배포 | Render |
@@ -23,7 +23,7 @@
 kku-diet-chatbot/
 ├── app.py              # Flask 서버 및 API 엔드포인트
 ├── crawler.py          # 기숙사 홈페이지 식단 크롤러 (10분 TTL 캐시)
-├── user_store.py       # SQLite 기반 사용자 데이터 저장소
+├── user_store.py       # MongoDB 기반 사용자 데이터 저장소
 ├── image_gen.py        # 주간 식단 이미지 생성 (Pillow)
 ├── fonts/
 │   └── NanumGothic.ttf # 한글 폰트 (레포에 포함)
@@ -112,17 +112,16 @@ kku-diet-chatbot/
 
 ## 데이터 저장
 
-사용자별 기숙사 설정은 SQLite DB(`users.db`)에 저장됩니다.
+사용자별 기숙사 설정은 MongoDB Atlas(`kku_diet.users` 컬렉션)에 저장됩니다.
 
-```sql
-CREATE TABLE users (
-    user_id    TEXT PRIMARY KEY,   -- 카카오 사용자 ID
-    dorm       TEXT NOT NULL,      -- 'haeoreum' | 'mosirae'
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
+```json
+{
+  "user_id": "카카오 사용자 ID",
+  "dorm": "haeoreum | mosirae"
+}
 ```
 
-> ⚠️ Render 재배포 시 `users.db`가 초기화되므로 사용자가 기숙사를 재등록해야 합니다.
+환경변수 `MONGODB_URI`에 Atlas 연결 문자열을 설정해야 합니다.
 
 ---
 
