@@ -1,39 +1,34 @@
-import sqlite3
 import os
+from pymongo import MongoClient
 
-DB_PATH = os.path.join(os.path.dirname(__file__), "users.db")
+_client = None
+_col = None
 
 
-def _get_conn():
-    conn = sqlite3.connect(DB_PATH)
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS users (
-            user_id    TEXT PRIMARY KEY,
-            dorm       TEXT NOT NULL,
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    """)
-    conn.commit()
-    return conn
+def _get_col():
+    global _client, _col
+    if _col is None:
+        uri = os.environ.get("MONGODB_URI")
+        if not uri:
+            raise RuntimeError("MONGODB_URI 환경변수가 설정되지 않았습니다.")
+        _client = MongoClient(uri)
+        _col = _client["kku_diet"]["users"]
+        _col.create_index("user_id", unique=True)
+    return _col
 
 
 def get_user_dorm(user_id):
     if not user_id:
         return None
-    with _get_conn() as conn:
-        row = conn.execute(
-            "SELECT dorm FROM users WHERE user_id = ?", (user_id,)
-        ).fetchone()
-    return row[0] if row else None
+    doc = _get_col().find_one({"user_id": user_id}, {"dorm": 1})
+    return doc["dorm"] if doc else None
 
 
 def set_user_dorm(user_id, dorm):
     if not user_id:
         return
-    with _get_conn() as conn:
-        conn.execute(
-            "INSERT INTO users (user_id, dorm) VALUES (?, ?) "
-            "ON CONFLICT(user_id) DO UPDATE SET dorm=excluded.dorm, updated_at=CURRENT_TIMESTAMP",
-            (user_id, dorm),
-        )
-        conn.commit()
+    _get_col().update_one(
+        {"user_id": user_id},
+        {"$set": {"dorm": dorm}},
+        upsert=True,
+    )

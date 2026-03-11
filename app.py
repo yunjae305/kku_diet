@@ -1,6 +1,8 @@
 import os
 import uuid
 import time
+from dotenv import load_dotenv
+load_dotenv()
 from flask import Flask, request, jsonify, Response
 from crawler import get_today_meals, get_tomorrow_meals, get_week_data
 from user_store import get_user_dorm, set_user_dorm
