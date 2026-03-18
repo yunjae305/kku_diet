@@ -76,16 +76,16 @@ def _fetch_diet_html(config: dict) -> str:
     return response.text
 
 
-def _parse_meals(rows, meal_types, weekday=None):
+def _parse_meals(rows, meal_types, weekday=None, num_days=5):
     """HTML rows에서 식사 데이터를 파싱합니다.
 
-    weekday가 None이면 주간 전체(5일치) dict 반환: {0..4: {meal: text}}
+    weekday가 None이면 주간 전체(num_days일치) dict 반환: {0..num_days-1: {meal: text}}
     weekday가 지정되면 해당 요일 dict 반환: {meal: text}
     """
     if weekday is not None:
         data = {m: "식단 정보 없음" for m in meal_types}
     else:
-        data = {i: {m: "식단 정보 없음" for m in meal_types} for i in range(5)}
+        data = {i: {m: "식단 정보 없음" for m in meal_types} for i in range(num_days)}
 
     for row in rows:
         header = row.find("th")
@@ -107,7 +107,7 @@ def _parse_meals(rows, meal_types, weekday=None):
                 )
                 data[matched_meal] = text or "식단 정보 없음"
         else:
-            for i in range(5):
+            for i in range(num_days):
                 if len(cells) > i:
                     text = "\n".join(
                         line.strip()
@@ -199,7 +199,8 @@ def get_week_data(dorm="haeoreum"):
         rows = soup.select("table.week_menu_tbl tbody tr")
         if not rows:
             return f"[{config['name']}] 식단 데이터를 찾을 수 없습니다."
-        meals = _parse_meals(rows, config["meals"])
+        num_days = 7 if config.get("has_weekend") else 5
+        meals = _parse_meals(rows, config["meals"], num_days=num_days)
         _cache[cache_key] = (time.time(), meals)
         return config, monday, meals
     except requests.exceptions.Timeout:

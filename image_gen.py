@@ -109,7 +109,9 @@ def generate_weekly_image(config, monday, meals):
         PNG 이미지 bytes
     """
     meal_types = config["meals"]
-    day_names = ["월", "화", "수", "목", "금"]
+    has_weekend = config.get("has_weekend", False)
+    num_days = 7 if has_weekend else 5
+    day_names = ["월", "화", "수", "목", "금", "토", "일"][:num_days]
     today_wd = datetime.now(KST).weekday()  # 오늘 요일 (0=월)
 
     font_cell  = _font(11)
@@ -120,20 +122,21 @@ def generate_weekly_image(config, monday, meals):
     row_heights = {}
     for meal in meal_types:
         max_lines = 1
-        for i in range(5):
+        for i in range(num_days):
             lines = _cell_lines(meals[i].get(meal, "식단 정보 없음"))
             max_lines = max(max_lines, len(lines))
         row_heights[meal] = max_lines * _LINE_H + _CELL_PAD * 2
 
-    W = _PAD * 2 + _LABEL_W + _COL_W * 5
+    W = _PAD * 2 + _LABEL_W + _COL_W * num_days
     H = _PAD + _TITLE_H + _HEAD_H + sum(row_heights.values()) + _PAD
 
     img = Image.new("RGB", (W, H), _C_BG)
     d = ImageDraw.Draw(img)
 
     # ── 제목 바 ───────────────────────────────────────────────
-    friday = monday + timedelta(days=4)
-    title = f"{config['name']}  {monday.strftime('%m/%d')}(월) ~ {friday.strftime('%m/%d')}(금)"
+    last_day = monday + timedelta(days=num_days - 1)
+    last_day_name = day_names[-1]
+    title = f"{config['name']}  {monday.strftime('%m/%d')}(월) ~ {last_day.strftime('%m/%d')}({last_day_name})"
     d.rectangle([0, 0, W, _TITLE_H], fill=_C_TITLE_BG)
     try:
         bbox = d.textbbox((0, 0), title, font=font_title)
@@ -145,7 +148,7 @@ def generate_weekly_image(config, monday, meals):
     # ── 요일 헤더 행 ──────────────────────────────────────────
     y = _TITLE_H
     d.rectangle([0, y, W, y + _HEAD_H], fill=_C_HEAD_BG)
-    for i in range(5):
+    for i in range(num_days):
         x = _PAD + _LABEL_W + _COL_W * i
         date = monday + timedelta(days=i)
         label = f"{day_names[i]}  {date.strftime('%m/%d')}"
@@ -166,7 +169,7 @@ def generate_weekly_image(config, monday, meals):
     table_top = _TITLE_H
     table_bottom = H - _PAD
     d.line([_PAD, table_top, _PAD, table_bottom], fill=_C_GRID, width=1)
-    for i in range(6):
+    for i in range(num_days + 1):
         x = _PAD + _LABEL_W + _COL_W * i
         d.line([x, table_top, x, table_bottom], fill=_C_GRID, width=1)
 
@@ -185,7 +188,7 @@ def generate_weekly_image(config, monday, meals):
         d.text((_PAD + (_LABEL_W - lw) // 2, y + (rh - lh) // 2), meal, font=font_head, fill=_C_LABEL_FG)
 
         # 요일별 식단 셀
-        for i in range(5):
+        for i in range(num_days):
             x = _PAD + _LABEL_W + _COL_W * i
             if i == today_wd:
                 d.rectangle([x, y, x + _COL_W, y + rh], fill=_C_TODAY_BG)
@@ -196,12 +199,12 @@ def generate_weekly_image(config, monday, meals):
                 ty += _LINE_H
 
         # 행 구분선
-        d.line([_PAD, y + rh, _PAD + _LABEL_W + _COL_W * 5, y + rh], fill=_C_GRID, width=1)
+        d.line([_PAD, y + rh, _PAD + _LABEL_W + _COL_W * num_days, y + rh], fill=_C_GRID, width=1)
         y += rh
 
     # 테이블 외곽선
     d.rectangle(
-        [_PAD, _TITLE_H, _PAD + _LABEL_W + _COL_W * 5, H - _PAD],
+        [_PAD, _TITLE_H, _PAD + _LABEL_W + _COL_W * num_days, H - _PAD],
         outline=_C_GRID, width=1
     )
 
