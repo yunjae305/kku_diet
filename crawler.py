@@ -1,3 +1,4 @@
+import os
 import requests
 from bs4 import BeautifulSoup
 from datetime import datetime, timedelta, timezone
@@ -38,11 +39,35 @@ _cache: dict = {}
 _CACHE_TTL = 600  # 10분
 
 
+_CACHE_SWEEP_INTERVAL = 300
+_last_cache_sweep_at = 0.0
+_REQUEST_TIMEOUT = float(os.environ.get("CRAWLER_TIMEOUT_SEC", "10"))
+
+
+def _sweep_expired_cache(now):
+    global _last_cache_sweep_at
+    if now - _last_cache_sweep_at < _CACHE_SWEEP_INTERVAL:
+        return
+    _last_cache_sweep_at = now
+
+    expired = [k for k, (ts, _) in _cache.items() if now - ts >= _CACHE_TTL]
+    for cache_key in expired:
+        del _cache[cache_key]
+
+
+def _set_cached(key, value):
+    now = time.time()
+    _sweep_expired_cache(now)
+    _cache[key] = (now, value)
+
+
 def _get_cached(key):
     """캐시에서 유효한 데이터를 반환합니다. 만료된 경우 삭제 후 None 반환."""
+    now = time.time()
+    _sweep_expired_cache(now)
     if key in _cache:
         ts, value = _cache[key]
-        if time.time() - ts < _CACHE_TTL:
+        if now - ts < _CACHE_TTL:
             return value
         del _cache[key]
     return None
@@ -60,17 +85,17 @@ def _fetch_diet_html(config: dict) -> str:
     session.headers.update(_HEADERS)
     dorm_type = config["dorm_type"]
 
-    session.get(f"{BASE_URL}/landing.do", timeout=10)
+    session.get(f"{BASE_URL}/landing.do", timeout=_REQUEST_TIMEOUT)
 
     main_url = f"{BASE_URL}/main.do?dormType={dorm_type}"
-    session.get(main_url, headers={"Referer": f"{BASE_URL}/landing.do"}, timeout=10)
+    session.get(main_url, headers={"Referer": f"{BASE_URL}/landing.do"}, timeout=_REQUEST_TIMEOUT)
 
     diet_url = f"{BASE_URL}/weekly_diet.do"
     response = session.get(
         diet_url,
         params=config["params"],
         headers={"Referer": main_url},
-        timeout=10,
+        timeout=_REQUEST_TIMEOUT,
     )
     response.encoding = "utf-8"
     return response.text
@@ -154,7 +179,7 @@ def get_diet_by_day(day_offset=0, dorm="haeoreum"):
             lines.append(f"\n{emoji} {meal}:\n{data[meal]}")
 
         result = "\n".join(lines)
-        _cache[cache_key] = (time.time(), result)
+        _set_cached(cache_key, result)
         return result
 
     except requests.exceptions.Timeout:
@@ -201,7 +226,7 @@ def get_week_data(dorm="haeoreum"):
             return f"[{config['name']}] 식단 데이터를 찾을 수 없습니다."
         num_days = 7 if config.get("has_weekend") else 5
         meals = _parse_meals(rows, config["meals"], num_days=num_days)
-        _cache[cache_key] = (time.time(), meals)
+        _set_cached(cache_key, meals)
         return config, monday, meals
     except requests.exceptions.Timeout:
         return "식단 서버 응답이 없습니다. 잠시 후 다시 시도해주세요."

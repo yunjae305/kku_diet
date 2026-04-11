@@ -1,4 +1,6 @@
 import os
+import json
+import hashlib
 import uuid
 import time
 from dotenv import load_dotenv
@@ -6,7 +8,6 @@ load_dotenv()
 from flask import Flask, request, jsonify, Response
 from crawler import get_today_meals, get_tomorrow_meals, get_week_data
 from user_store import get_user_dorm, set_user_dorm
-from image_gen import generate_weekly_image
 
 DORM_NAMES = {"haeoreum": "해오름학사", "mosirae": "모시래학사"}
 
@@ -16,7 +17,24 @@ app.json.ensure_ascii = False
 # 미리 생성된 이미지를 임시 저장하는 캐시: {key: (생성시각, png_bytes)}
 # 카카오가 이미지 URL을 fetch할 때 즉시 반환하기 위해 사용
 _img_cache: dict = {}
+_weekly_image_cache: dict = {}
 _IMG_CACHE_TTL = 300  # 5분
+
+
+def _cleanup_img_cache(now_ts):
+    expired_image_keys = [k for k, (ts, _) in _img_cache.items() if now_ts - ts > _IMG_CACHE_TTL]
+    for cache_key in expired_image_keys:
+        del _img_cache[cache_key]
+
+    expired_weekly_keys = [k for k, (ts, _) in _weekly_image_cache.items() if now_ts - ts > _IMG_CACHE_TTL]
+    for payload_key in expired_weekly_keys:
+        del _weekly_image_cache[payload_key]
+
+
+def _build_weekly_payload_key(dorm, monday, meals):
+    meals_json = json.dumps(meals, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    digest = hashlib.sha1(meals_json.encode("utf-8")).hexdigest()
+    return f"{dorm}:{monday.strftime('%Y-%m-%d')}:{digest}"
 
 
 def _get_user_info():
@@ -116,21 +134,31 @@ def weekly_api():
 
     config, monday, meals = result
 
+    now = time.time()
+    _cleanup_img_cache(now)
+    payload_key = _build_weekly_payload_key(dorm, monday, meals)
+    cached_entry = _weekly_image_cache.get(payload_key)
+    if cached_entry:
+        _, cached_key = cached_entry
+        cached_image = _img_cache.get(cached_key)
+        if cached_image:
+            _img_cache[cached_key] = (now, cached_image[1])
+            _weekly_image_cache[payload_key] = (now, cached_key)
+            base_url = request.host_url.replace("http://", "https://")
+            image_url = f"{base_url}api/weekly_image/{cached_key}"
+            return _make_image_response(image_url)
+
     # 이미지 생성 후 메모리 캐시에 저장
     try:
+        from image_gen import generate_weekly_image
         png_bytes = generate_weekly_image(config, monday, meals)
     except Exception as e:
         print(f"[weekly_api] 이미지 생성 오류: {e}")
         return _make_response("이미지 생성 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.")
 
     key = uuid.uuid4().hex
-    _img_cache[key] = (time.time(), png_bytes)
-
-    # 만료된 캐시 정리
-    now = time.time()
-    expired = [k for k, (ts, _) in _img_cache.items() if now - ts > _IMG_CACHE_TTL]
-    for k in expired:
-        del _img_cache[k]
+    _img_cache[key] = (now, png_bytes)
+    _weekly_image_cache[payload_key] = (now, key)
 
     # 카카오에 이미지 URL 반환 (https 강제)
     base_url = request.host_url.replace("http://", "https://")
@@ -141,11 +169,14 @@ def weekly_api():
 @app.route('/api/weekly_image/<key>', methods=['GET'])
 def weekly_image(key):
     """미리 생성된 주간 식단 이미지를 반환합니다. (카카오 서버가 호출)"""
+    now = time.time()
+    _cleanup_img_cache(now)
     entry = _img_cache.get(key)
     if not entry:
         return "이미지를 찾을 수 없습니다. 다시 시도해주세요.", 404
 
     _, png_bytes = entry
+    _img_cache[key] = (now, png_bytes)
     return Response(png_bytes, mimetype="image/png")
 
 
