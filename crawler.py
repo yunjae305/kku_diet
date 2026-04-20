@@ -15,6 +15,7 @@ DORM_CONFIG = {
         "dorm_type": "H",
         "params": {"menuSeq": "43885", "bachelor": "HA"},
         "meals": ["점심", "저녁"],
+        "meal_times": {"점심": "11:30 ~ 13:30", "저녁": "17:30 ~ 19:00"},
         "has_weekend": False,
     },
     "mosirae": {
@@ -22,11 +23,25 @@ DORM_CONFIG = {
         "dorm_type": "M",
         "params": {"menuSeq": "43860", "bachelor": "MO"},
         "meals": ["아침", "점심", "저녁"],
+        "meal_times": {
+            "weekday": {"아침": "08:00 ~ 09:00", "점심": "12:00 ~ 13:30", "저녁": "16:50 ~ 18:30"},
+            "weekend": {"아침": "08:30 ~ 09:30", "점심": "12:00 ~ 13:00", "저녁": "17:00 ~ 18:00"},
+        },
         "has_weekend": True,
     },
 }
 
 _MEAL_EMOJI = {"아침": "🌅", "점심": "🍴", "저녁": "🌙"}
+
+
+def _meal_label(config, meal, weekday):
+    meal_times = config.get("meal_times", {})
+    if "weekday" in meal_times or "weekend" in meal_times:
+        day_type = "weekend" if weekday > 4 else "weekday"
+        meal_times = meal_times.get(day_type, {})
+    if meal in meal_times:
+        return f"{meal}({meal_times[meal]})"
+    return meal
 
 _HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
@@ -176,7 +191,8 @@ def get_diet_by_day(day_offset=0, dorm="haeoreum"):
         lines = [f"[{config['name']} {target_date.strftime('%m/%d')} 식단]"]
         for meal in meal_types:
             emoji = _MEAL_EMOJI[meal]
-            lines.append(f"\n{emoji} {meal}:\n{data[meal]}")
+            meal_label = _meal_label(config, meal, weekday)
+            lines.append(f"\n{emoji} {meal_label}:\n{data[meal]}")
 
         result = "\n".join(lines)
         _set_cached(cache_key, result)
