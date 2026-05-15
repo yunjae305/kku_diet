@@ -3,6 +3,8 @@ import requests
 from bs4 import BeautifulSoup
 from datetime import datetime, timedelta, timezone
 
+requests.packages.urllib3.disable_warnings()
+
 KST = timezone(timedelta(hours=9))
 import time
 
@@ -97,6 +99,7 @@ def _fetch_diet_html(config: dict) -> str:
     ③ GET /weekly_diet.do    → 식단 HTML 파싱
     """
     session = requests.Session()
+    session.verify = False
     session.headers.update(_HEADERS)
     dorm_type = config["dorm_type"]
 
@@ -202,10 +205,10 @@ def get_diet_by_day(day_offset=0, dorm="haeoreum"):
         return "식단 서버 응답이 없습니다. 잠시 후 다시 시도해주세요."
     except requests.exceptions.RequestException as e:
         print(f"[crawler] 네트워크 오류: {e}")
-        return f"네트워크 오류: {e}"
+        return "네트워크 오류가 발생했습니다. 잠시 후 다시 시도해주세요."
     except Exception as e:
         print(f"[crawler] 오류: {e}")
-        return f"서버 오류: {e}"
+        return "서버 오류가 발생했습니다. 잠시 후 다시 시도해주세요."
 
 
 def get_today_meals(dorm="haeoreum"):
@@ -248,7 +251,7 @@ def get_week_data(dorm="haeoreum"):
         return "식단 서버 응답이 없습니다. 잠시 후 다시 시도해주세요."
     except requests.exceptions.RequestException as e:
         print(f"[crawler] 네트워크 오류: {e}")
-        return f"네트워크 오류: {e}"
+        return "네트워크 오류가 발생했습니다. 잠시 후 다시 시도해주세요."
     except Exception as e:
         print(f"[crawler] 오류: {e}")
-        return f"서버 오류: {e}"
+        return "서버 오류가 발생했습니다. 잠시 후 다시 시도해주세요."
