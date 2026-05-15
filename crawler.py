@@ -1,9 +1,12 @@
 import os
 import requests
+import holidays
 from bs4 import BeautifulSoup
 from datetime import datetime, timedelta, timezone
 
 requests.packages.urllib3.disable_warnings()
+
+_KR_HOLIDAYS = holidays.country_holidays('KR')
 
 KST = timezone(timedelta(hours=9))
 import time
@@ -36,10 +39,10 @@ DORM_CONFIG = {
 _MEAL_EMOJI = {"아침": "🌅", "점심": "🍴", "저녁": "🌙"}
 
 
-def _meal_label(config, meal, weekday):
+def _meal_label(config, meal, weekday, is_holiday=False):
     meal_times = config.get("meal_times", {})
     if "weekday" in meal_times or "weekend" in meal_times:
-        day_type = "weekend" if weekday > 4 else "weekday"
+        day_type = "weekend" if (weekday > 4 or is_holiday) else "weekday"
         meal_times = meal_times.get(day_type, {})
     if meal in meal_times:
         return f"{meal}({meal_times[meal]})"
@@ -170,9 +173,11 @@ def get_diet_by_day(day_offset=0, dorm="haeoreum"):
 
     target_date = datetime.now(KST) + timedelta(days=day_offset)
     weekday = target_date.weekday()  # 0:월 ~ 6:일
+    is_holiday = target_date.date() in _KR_HOLIDAYS
+    is_off_day = weekday > 4 or is_holiday
 
-    if weekday > 4 and not config.get("has_weekend"):
-        return f"[{config['name']}] 주말에는 식단이 없습니다."
+    if is_off_day and not config.get("has_weekend"):
+        return f"[{config['name']}] 주말/공휴일에는 식단이 없습니다."
 
     date_str = target_date.strftime("%Y-%m-%d")
     cache_key = (dorm, date_str)
@@ -194,7 +199,7 @@ def get_diet_by_day(day_offset=0, dorm="haeoreum"):
         lines = [f"[{config['name']} {target_date.strftime('%m/%d')} 식단]"]
         for meal in meal_types:
             emoji = _MEAL_EMOJI[meal]
-            meal_label = _meal_label(config, meal, weekday)
+            meal_label = _meal_label(config, meal, weekday, is_holiday=is_holiday)
             lines.append(f"\n{emoji} {meal_label}:\n{data[meal]}")
 
         result = "\n".join(lines)
