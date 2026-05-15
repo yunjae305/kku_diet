@@ -202,10 +202,10 @@ def get_diet_by_day(day_offset=0, dorm="haeoreum"):
         return "식단 서버 응답이 없습니다. 잠시 후 다시 시도해주세요."
     except requests.exceptions.RequestException as e:
         print(f"[crawler] 네트워크 오류: {e}")
-        return "네트워크 오류가 발생했습니다. 잠시 후 다시 시도해주세요."
+        return f"네트워크 오류: {e}"
     except Exception as e:
         print(f"[crawler] 오류: {e}")
-        return "서버 오류가 발생했습니다. 터미널을 확인해주세요."
+        return f"서버 오류: {e}"
 
 
 def get_today_meals(dorm="haeoreum"):
@@ -248,7 +248,7 @@ def get_week_data(dorm="haeoreum"):
         return "식단 서버 응답이 없습니다. 잠시 후 다시 시도해주세요."
     except requests.exceptions.RequestException as e:
         print(f"[crawler] 네트워크 오류: {e}")
-        return "네트워크 오류가 발생했습니다. 잠시 후 다시 시도해주세요."
+        return f"네트워크 오류: {e}"
     except Exception as e:
         print(f"[crawler] 오류: {e}")
-        return "서버 오류가 발생했습니다."
+        return f"서버 오류: {e}"
