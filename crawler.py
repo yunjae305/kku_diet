@@ -1,4 +1,5 @@
 import os
+import re
 import requests
 import holidays
 from bs4 import BeautifulSoup
@@ -93,7 +94,7 @@ def _get_cached(key):
     return None
 
 
-def _fetch_diet_html(config: dict) -> str:
+def _fetch_diet_html(config: dict, extra_params=None) -> str:
     """3단계 세션 흐름으로 식단 페이지 HTML을 가져옵니다.
 
     기숙사 홈페이지는 세션 없이 접근하면 landing.do로 리다이렉트됩니다.
@@ -112,9 +113,13 @@ def _fetch_diet_html(config: dict) -> str:
     session.get(main_url, headers={"Referer": f"{BASE_URL}/landing.do"}, timeout=_REQUEST_TIMEOUT)
 
     diet_url = f"{BASE_URL}/weekly_diet.do"
+    params = dict(config["params"])
+    if extra_params:
+        params.update(extra_params)
+
     response = session.get(
         diet_url,
-        params=config["params"],
+        params=params,
         headers={"Referer": main_url},
         timeout=_REQUEST_TIMEOUT,
     )
@@ -122,13 +127,36 @@ def _fetch_diet_html(config: dict) -> str:
     return response.text
 
 
-def _parse_meals(rows, meal_types, weekday=None, num_days=5):
+def _parse_menu_date(text):
+    match = re.search(r"\((\d{4})-(\d{1,2})-(\d{1,2})\)", text)
+    if not match:
+        return None
+    year, month, day = (int(value) for value in match.groups())
+    return datetime(year, month, day).date()
+
+
+def _parse_header_dates(soup):
+    table = soup.select_one("table.week_menu_tbl")
+    if not table:
+        return []
+    header_row = table.find("tr")
+    if not header_row:
+        return []
+    dates = []
+    for cell in header_row.find_all(["th", "td"]):
+        menu_date = _parse_menu_date(cell.get_text(" ", strip=True))
+        if menu_date:
+            dates.append(menu_date)
+    return dates
+
+
+def _parse_meals(rows, meal_types, day_index=None, num_days=5):
     """HTML rows에서 식사 데이터를 파싱합니다.
 
-    weekday가 None이면 주간 전체(num_days일치) dict 반환: {0..num_days-1: {meal: text}}
-    weekday가 지정되면 해당 요일 dict 반환: {meal: text}
+    day_index가 None이면 주간 전체(num_days일치) dict 반환: {0..num_days-1: {meal: text}}
+    day_index가 지정되면 해당 날짜 열 dict 반환: {meal: text}
     """
-    if weekday is not None:
+    if day_index is not None:
         data = {m: "식단 정보 없음" for m in meal_types}
     else:
         data = {i: {m: "식단 정보 없음" for m in meal_types} for i in range(num_days)}
@@ -144,11 +172,11 @@ def _parse_meals(rows, meal_types, weekday=None, num_days=5):
         if not matched_meal:
             continue
 
-        if weekday is not None:
-            if len(cells) > weekday:
+        if day_index is not None:
+            if len(cells) > day_index:
                 text = "\n".join(
                     line.strip()
-                    for line in cells[weekday].get_text(separator="\n").split("\n")
+                    for line in cells[day_index].get_text(separator="\n").split("\n")
                     if line.strip()
                 )
                 data[matched_meal] = text or "식단 정보 없음"
@@ -163,6 +191,64 @@ def _parse_meals(rows, meal_types, weekday=None, num_days=5):
                     data[i][matched_meal] = text or "식단 정보 없음"
 
     return data
+
+
+def _parse_week_table(html, meal_types):
+    soup = BeautifulSoup(html, "html.parser")
+    rows = soup.select("table.week_menu_tbl tbody tr")
+    if not rows:
+        return None
+    dates = _parse_header_dates(soup)
+    if not dates:
+        return None
+    meals = _parse_meals(rows, meal_types, num_days=len(dates))
+    return dates, meals
+
+
+def _set_cached_week_table(dorm, dates, meals):
+    for menu_date in dates:
+        _set_cached((dorm, menu_date.strftime("%Y-%m-%d"), "table"), (dates, meals))
+
+
+def _get_cached_week_table(dorm, target_day):
+    return _get_cached((dorm, target_day.strftime("%Y-%m-%d"), "table"))
+
+
+def _fetch_week_table(config, dorm, extra_params=None):
+    parsed = _parse_week_table(_fetch_diet_html(config, extra_params), config["meals"])
+    if not parsed:
+        return None
+    dates, meals = parsed
+    _set_cached_week_table(dorm, dates, meals)
+    return dates, meals
+
+
+def _get_week_table(config, dorm, target_day):
+    cached = _get_cached_week_table(dorm, target_day)
+    if cached:
+        return cached
+
+    parsed = _fetch_week_table(config, dorm)
+    if not parsed:
+        return None
+
+    dates, meals = parsed
+    if target_day in dates:
+        return dates, meals
+
+    first_day = min(dates)
+    last_day = max(dates)
+    if target_day < first_day:
+        extra_params = {"target_day": first_day.strftime("%Y-%m-%d"), "time_shift": "prev"}
+    elif target_day > last_day:
+        extra_params = {"target_day": first_day.strftime("%Y-%m-%d"), "time_shift": "next"}
+    else:
+        return dates, meals
+
+    parsed = _fetch_week_table(config, dorm, extra_params)
+    if not parsed:
+        return None
+    return parsed
 
 
 def get_diet_by_day(day_offset=0, dorm="haeoreum"):
@@ -186,15 +272,17 @@ def get_diet_by_day(day_offset=0, dorm="haeoreum"):
         return cached
 
     try:
-        html = _fetch_diet_html(config)
-        soup = BeautifulSoup(html, "html.parser")
-
-        rows = soup.select("table.week_menu_tbl tbody tr")
-        if not rows:
+        parsed = _get_week_table(config, dorm, target_date.date())
+        if not parsed:
             return f"[{config['name']}] 식단 데이터를 찾을 수 없습니다."
 
+        dates, meals = parsed
+        if target_date.date() not in dates:
+            return f"[{config['name']}] {target_date.strftime('%m/%d')} 식단 정보를 찾을 수 없습니다."
+
+        day_index = dates.index(target_date.date())
         meal_types = config["meals"]
-        data = _parse_meals(rows, meal_types, weekday=weekday)
+        data = meals[day_index]
 
         lines = [f"[{config['name']} {target_date.strftime('%m/%d')} 식단]"]
         for meal in meal_types:
@@ -243,13 +331,18 @@ def get_week_data(dorm="haeoreum"):
         return config, monday, cached
 
     try:
-        html = _fetch_diet_html(config)
-        soup = BeautifulSoup(html, "html.parser")
-        rows = soup.select("table.week_menu_tbl tbody tr")
-        if not rows:
+        parsed = _get_week_table(config, dorm, today.date())
+        if not parsed:
             return f"[{config['name']}] 식단 데이터를 찾을 수 없습니다."
+        dates, parsed_meals = parsed
         num_days = 7 if config.get("has_weekend") else 5
-        meals = _parse_meals(rows, config["meals"], num_days=num_days)
+        meals = {}
+        for i in range(num_days):
+            menu_date = (monday + timedelta(days=i)).date()
+            if menu_date in dates:
+                meals[i] = parsed_meals[dates.index(menu_date)]
+            else:
+                meals[i] = {meal: "식단 정보 없음" for meal in config["meals"]}
         _set_cached(cache_key, meals)
         return config, monday, meals
     except requests.exceptions.Timeout:
