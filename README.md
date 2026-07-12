@@ -1,118 +1,79 @@
 # 건국대학교 글로컬캠퍼스 생활관 식단 챗봇
 
-건국대학교 글로컬캠퍼스 기숙사(해오름학사 / 모시래학사)의 식단 정보를 카카오톡 챗봇으로 제공하는 서비스입니다.
+건국대학교 글로컬캠퍼스 생활관의 식단 정보를 카카오톡에서 간편하게 확인할 수 있도록 만든 개인 프로젝트입니다.
 
----
+해오름학사와 모시래학사의 식단을 수집해 오늘·내일 식단을 텍스트로 제공하고, 이번 주 식단은 이미지로 생성해 보여줍니다.
+
+## 주요 기능
+
+- 오늘·내일 식단 조회
+- 해오름학사 / 모시래학사 선택 및 사용자별 설정 저장
+- 이번 주 식단표 이미지 생성
+- 주말·공휴일 식사 운영 여부 반영
+- 반복 요청을 줄이기 위한 TTL 캐싱
+- Render 배포 및 헬스체크 엔드포인트 제공
+
+## 서비스 흐름
+
+```mermaid
+flowchart LR
+    A[카카오톡 사용자] --> B[카카오 챗봇]
+    B --> C[Flask API]
+    C --> D[사용자 기숙사 설정 조회]
+    C --> E[생활관 식단 크롤러]
+    E --> F[생활관 홈페이지]
+    C --> G[텍스트 또는 식단표 이미지 응답]
+    G --> B
+```
 
 ## 기술 스택
 
-| 분류 | 기술 |
-|------|------|
-| 백엔드 서버 | Python 3.12 + Flask 3.1 |
-| 크롤링 | Requests + BeautifulSoup4 |
-| 데이터베이스 | MongoDB Atlas |
-| 이미지 생성 | Pillow |
-| 챗봇 플랫폼 | 카카오 챗봇 (구 i-kakao) |
-| 배포 | Render |
-
----
-
-## 프로젝트 구조
-
-```
-kku-diet-chatbot/
-├── app.py              # Flask 서버 및 API 엔드포인트
-├── crawler.py          # 기숙사 홈페이지 식단 크롤러 (10분 TTL 캐시)
-├── user_store.py       # MongoDB 기반 사용자 데이터 저장소
-├── image_gen.py        # 주간 식단 이미지 생성 (Pillow)
-├── fonts/
-│   └── NanumGothic.ttf # 한글 폰트 (레포에 포함)
-├── Procfile            # Render 배포용 (gunicorn)
-├── build.sh            # Render 빌드 스크립트
-├── requirements.txt
-└── .gitignore
-```
-
----
-
-## 기능 설명
-
-### 1. 오늘/내일 학식 조회 (`POST /api/diet`)
-
-오늘 또는 내일 식단을 텍스트로 반환합니다.
-
-- 발화에 `"내일"` 포함 여부로 자동 분기
-- 주말인 경우 "주말에는 식단이 없습니다" 안내
-- 기숙사 미등록 시 등록 버튼(빠른답변) 제공
-- **해오름학사**: 점심·저녁 / **모시래학사**: 아침·점심·저녁
-
-**응답 예시 (해오름학사):**
-```
-[해오름학사 03/10 식단]
-
-🍴 점심:
-계란볶음밥/쌀밥
-아욱국
-...
-
-🌙 저녁:
-쌀밥
-부대찌개
-...
-```
-
----
-
-### 2. 이번 주 학식 조회 (`POST /api/weekly`)
-
-이번 주 월~금 전체 식단을 PNG 이미지로 반환합니다.
-
-- 요청 즉시 전체 식단 크롤링 후 이미지 생성 (5분간 캐싱)
-- 월~금 5일치 식단을 표 형식으로 표시
-- 오늘 날짜 컬럼 강조 표시
-- 한글 폰트(NanumGothic)는 레포에 포함되어 있어 자동 적용
-
----
-
-### 3. 내 정보 조회 (`POST /api/myinfo`)
-
-현재 등록된 기숙사 정보를 반환합니다.
-
----
-
-### 4. 설정 (`POST /api/settings`)
-
-현재 등록된 기숙사를 확인하고 변경할 수 있습니다.
-
----
-
-### 5. 기숙사 등록
-
-| 엔드포인트 | 설명 |
-|-----------|------|
-| `POST /api/register/haeoreum` | 해오름학사 등록 |
-| `POST /api/register/mosirae` | 모시래학사 등록 |
-
----
+| 구분 | 기술 |
+|---|---|
+| Backend | Python 3.12, Flask 3.1, Gunicorn |
+| Crawling | Requests, BeautifulSoup4 |
+| Database | MongoDB Atlas |
+| Image | Pillow |
+| Chatbot | 카카오 챗봇 |
+| Deployment | Render |
 
 ## 크롤링 방식
 
-기숙사 홈페이지(`dorm.kku.ac.kr`)는 세션 없이 직접 접근 시 `landing.do`로 리다이렉트됩니다.
-이를 해결하기 위해 아래 3단계 세션 흐름을 구현했습니다.
+생활관 홈페이지는 세션 없이 식단 페이지에 직접 접근하면 `landing.do`로 이동합니다.
 
+이를 처리하기 위해 `requests.Session()`을 사용해 다음 순서로 세션을 구성합니다.
+
+```text
+1. GET /landing.do
+   └─ JSESSIONID 쿠키 획득
+
+2. GET /main.do?dormType=...
+   └─ 해오름학사 또는 모시래학사 컨텍스트 설정
+
+3. GET /weekly_diet.do
+   └─ 주간 식단 HTML 수집 및 파싱
 ```
-① GET /landing.do        → JSESSIONID 쿠키 획득
-② GET /main.do?dormType= → 기숙사 컨텍스트 세션 설정
-③ GET /weekly_diet.do    → 식단 HTML 파싱
-```
 
-파싱된 데이터는 **10분 TTL 메모리 캐시**에 저장되어 반복 요청 시 크롤링을 생략합니다.
+식단 테이블의 헤더에서 실제 날짜를 추출하고, 요청한 날짜와 일치하는 열을 선택합니다. 현재 화면에 대상 날짜가 없으면 이전 주 또는 다음 주 식단을 다시 요청합니다.
 
----
+수집한 식단 데이터는 10분 동안 메모리에 캐싱해 동일한 페이지를 반복해서 요청하지 않도록 구성했습니다.
 
-## 데이터 저장
+## API
 
-사용자별 기숙사 설정은 MongoDB Atlas(`kku_diet.users` 컬렉션)에 저장됩니다.
+| Method | Endpoint | 설명 |
+|---|---|---|
+| POST | `/api/diet` | 오늘 또는 내일 식단 조회 |
+| POST | `/api/weekly` | 이번 주 식단표 이미지 생성 |
+| GET | `/api/weekly_image/<key>` | 생성된 식단표 이미지 반환 |
+| POST | `/api/myinfo` | 현재 등록된 기숙사 조회 |
+| POST | `/api/settings` | 기숙사 설정 조회 및 변경 |
+| POST | `/api/register/haeoreum` | 해오름학사 등록 |
+| POST | `/api/register/mosirae` | 모시래학사 등록 |
+| GET | `/health` | 서버 상태 확인 |
+
+## 사용자 데이터
+
+사용자별 기숙사 설정은 MongoDB Atlas의 `kku_diet.users` 컬렉션에 저장됩니다.
 
 ```json
 {
@@ -121,42 +82,62 @@ kku-diet-chatbot/
 }
 ```
 
-환경변수 `MONGODB_URI`에 Atlas 연결 문자열을 설정해야 합니다.
+## 프로젝트 구조
 
----
-
-## 배포 방식 (Render)
-
-### 사전 준비
-
-GitHub 저장소를 Render에 연결합니다.
-
-### Render 설정
-
-| 항목 | 값 |
-|------|-----|
-| Environment | Python 3 |
-| Build Command | `bash build.sh` |
-| Start Command | `gunicorn app:app` |
-
-### 코드 수정 반영
-
-```bash
-git add .
-git commit -m "변경 내용"
-git push origin master
-# → Render 자동 재배포
+```text
+kku_diet/
+├── app.py              # Flask 서버와 카카오 챗봇 API
+├── crawler.py          # 식단 수집, 날짜 매칭, 캐싱
+├── user_store.py       # MongoDB 사용자 설정 저장소
+├── image_gen.py        # 주간 식단표 이미지 생성
+├── fonts/              # 이미지 생성용 한글 폰트
+├── build.sh            # Render 빌드 스크립트
+├── Procfile            # Gunicorn 실행 설정
+├── requirements.txt
+└── README.md
 ```
 
----
+## 로컬 실행
 
-## 카카오 챗봇 스킬 URL 연결표
+```bash
+python -m venv .venv
 
-| 기능 | 스킬 URL |
-|------|----------|
-| 오늘/내일 학식 | `POST /api/diet` |
-| 이번 주 학식 | `POST /api/weekly` |
-| 내 정보 | `POST /api/myinfo` |
-| 설정 | `POST /api/settings` |
-| 해오름학사 등록 | `POST /api/register/haeoreum` |
-| 모시래학사 등록 | `POST /api/register/mosirae` |
+# Windows
+.venv\Scripts\activate
+
+# macOS / Linux
+source .venv/bin/activate
+
+pip install -r requirements.txt
+python app.py
+```
+
+기본 실행 주소는 `http://localhost:5000`입니다.
+
+## 환경 변수
+
+```env
+MONGODB_URI=mongodb+srv://...
+PORT=5000
+CRAWLER_TIMEOUT_SEC=10
+```
+
+- `MONGODB_URI`: MongoDB Atlas 연결 문자열
+- `PORT`: 서버 실행 포트
+- `CRAWLER_TIMEOUT_SEC`: 생활관 홈페이지 요청 제한 시간
+
+## 현재 한계와 개선 방향
+
+- 메모리 캐시는 서버 재시작 시 초기화됩니다.
+- 여러 서버 인스턴스를 사용할 경우 캐시가 공유되지 않습니다.
+- 생활관 홈페이지의 DOM 구조가 변경되면 선택자 수정이 필요합니다.
+- 운영 규모가 커질 경우 Redis 기반 공용 캐시와 자동화 테스트 확대가 필요합니다.
+
+## 프로젝트에서 다룬 내용
+
+- 세션과 쿠키가 필요한 웹사이트 데이터 수집
+- HTML 테이블의 날짜와 실제 요청 날짜 매칭
+- Flask 기반 카카오 챗봇 API 구성
+- MongoDB를 이용한 사용자 설정 관리
+- 이미지 생성 및 단기 캐싱
+- 배포 환경에서 발생한 오류 추적과 개선
