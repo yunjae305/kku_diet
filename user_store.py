@@ -1,26 +1,12 @@
-import os
-from pymongo import MongoClient
+from mongo import get_collection
 
-_client = None
 _col = None
-_SERVER_SELECTION_TIMEOUT_MS = int(os.environ.get("MONGO_SERVER_SELECTION_TIMEOUT_MS", "3000"))
-_CONNECT_TIMEOUT_MS = int(os.environ.get("MONGO_CONNECT_TIMEOUT_MS", "3000"))
-_SOCKET_TIMEOUT_MS = int(os.environ.get("MONGO_SOCKET_TIMEOUT_MS", "5000"))
 
 
 def _get_col():
-    global _client, _col
+    global _col
     if _col is None:
-        uri = os.environ.get("MONGODB_URI")
-        if not uri:
-            raise RuntimeError("MONGODB_URI 환경변수가 설정되지 않았습니다.")
-        _client = MongoClient(
-            uri,
-            serverSelectionTimeoutMS=_SERVER_SELECTION_TIMEOUT_MS,
-            connectTimeoutMS=_CONNECT_TIMEOUT_MS,
-            socketTimeoutMS=_SOCKET_TIMEOUT_MS,
-        )
-        _col = _client["kku_diet"]["users"]
+        _col = get_collection("users")
         _col.create_index("user_id", unique=True)
     return _col
 

@@ -8,6 +8,7 @@ load_dotenv()
 from flask import Flask, request, jsonify, Response
 from crawler import get_today_meals, get_tomorrow_meals, get_week_data
 from user_store import get_user_dorm, set_user_dorm
+from ad_store import get_random_ad
 
 DORM_NAMES = {"haeoreum": "해오름학사", "mosirae": "모시래학사"}
 
@@ -70,6 +71,40 @@ def _make_image_response(image_url):
         },
     }
     return jsonify(res)
+
+
+# 쿠팡 파트너스 상품 카드 설정
+_CARD_DESC_MAX = 230  # 카카오 basicCard 설명 길이 제한
+_COUPANG_DISCLOSURE = "이 링크는 쿠팡 파트너스 활동의 일환으로, 이에 따른 일정액의 수수료를 제공받습니다."
+
+
+def _make_ad_response(ad):
+    """쿠팡 파트너스 상품을 basicCard로 응답합니다.
+
+    표시광고 지침에 따라 설명 끝에는 항상 파트너스 활동 문구를 붙입니다.
+    """
+    body = (ad.get("description") or "").strip()
+    body_max = _CARD_DESC_MAX - len(_COUPANG_DISCLOSURE) - 2
+    if len(body) > body_max:
+        body = body[:body_max - 1].rstrip() + "…"
+    description = f"{body}\n\n{_COUPANG_DISCLOSURE}" if body else _COUPANG_DISCLOSURE
+
+    card = {
+        "title": ad["title"],
+        "description": description,
+        "buttons": [
+            {
+                "action": "webLink",
+                "label": ad.get("button_label") or "쿠팡에서 보기",
+                "webLinkUrl": ad["link"],
+            }
+        ],
+    }
+    image_url = ad.get("image_url")
+    if image_url:
+        card["thumbnail"] = {"imageUrl": image_url, "link": {"web": ad["link"]}}
+
+    return jsonify({"version": "2.0", "template": {"outputs": [{"basicCard": card}]}})
 
 
 # 기숙사 미등록 시 표시할 빠른답변 버튼
@@ -204,6 +239,21 @@ def settings_api():
             {"label": "🏠 해오름학사", "action": "message", "messageText": "해오름학사 등록"},
         ]
     )
+
+
+@app.route('/api/recommend', methods=['POST'])
+def recommend_api():
+    """등록된 쿠팡 파트너스 상품 중 하나를 무작위로 보여줍니다."""
+    try:
+        ad = get_random_ad()
+    except Exception as e:
+        print(f"[recommend_api] 상품 조회 오류: {e}")
+        ad = None
+
+    if not ad:
+        return _make_response("추천 상품을 준비 중입니다. 잠시 후 다시 확인해주세요.")
+
+    return _make_ad_response(ad)
 
 
 @app.route('/health')
