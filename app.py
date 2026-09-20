@@ -78,9 +78,15 @@ def _make_image_response(image_url):
 _CARD_DESC_MAX = 230  # 카카오 basicCard 설명 길이 제한
 _COUPANG_DISCLOSURE = "이 링크는 쿠팡 파트너스 활동의 일환으로, 이에 따른 일정액의 수수료를 제공받습니다."
 
+# 추천 카드 앞에 항상 붙는 고정 안내. 환경변수로 바꿀 수 있고, 빈 값이면 카드만 나갑니다.
+_RECOMMEND_INTRO = os.environ.get(
+    "RECOMMEND_INTRO",
+    "🏠 기숙사 생활에 요긴한 물건들을 모아봤어요.\n마음에 드는 게 있으면 아래 버튼으로 확인해보세요.",
+)
+
 
 def _make_ad_response(ad):
-    """쿠팡 파트너스 상품을 basicCard로 응답합니다.
+    """이미지가 있으면 basicCard, 없으면 textCard로 상품을 응답합니다.
 
     표시광고 지침에 따라 설명 끝에는 항상 파트너스 활동 문구를 붙입니다.
     """
@@ -101,11 +107,20 @@ def _make_ad_response(ad):
             }
         ],
     }
-    image_url = ad.get("image_url")
+    image_url = (ad.get("image_url") or "").strip()
+    # basicCard는 thumbnail이 필수이므로 이미지가 없으면 textCard를 사용합니다.
+    card_type = "textCard"
     if image_url:
         card["thumbnail"] = {"imageUrl": image_url, "link": {"web": ad["link"]}}
+        card_type = "basicCard"
 
-    return jsonify({"version": "2.0", "template": {"outputs": [{"basicCard": card}]}})
+    outputs = []
+    intro = _RECOMMEND_INTRO.strip()
+    if intro:
+        outputs.append({"simpleText": {"text": intro}})
+    outputs.append({card_type: card})
+
+    return jsonify({"version": "2.0", "template": {"outputs": outputs}})
 
 
 # 기숙사 미등록 시 표시할 빠른답변 버튼

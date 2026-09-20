@@ -89,7 +89,9 @@ flowchart LR
 
 쿠팡 파트너스 상품은 `ads.json`에서 관리하고, 시드 스크립트로 MongoDB의 `kku_diet.ads` 컬렉션에 동기화합니다.
 
-`/api/recommend`는 `active: true`인 상품 중 하나를 `$sample`로 무작위 선택해 카카오 `basicCard`로 응답합니다.
+`/api/recommend`는 `active: true`인 상품 중 하나를 `$sample`로 무작위 선택합니다.
+이미지가 있으면 카카오 `basicCard`, 없으면 `textCard`로 응답하며 두 형식 모두 상품 링크 버튼과 파트너스 안내를 포함합니다.
+`basicCard`는 `thumbnail`이 필수이므로 이미지가 없는 상품에는 사용하지 않습니다.
 
 ```json
 {
@@ -109,7 +111,7 @@ flowchart LR
 | `title` | O | 카드 제목 |
 | `link` | O | 쿠팡 파트너스 링크. `https://`로 시작해야 합니다. |
 | `description` | | 카드 설명. 파트너스 문구를 포함해 230자로 잘립니다. |
-| `image_url` | | 썸네일. 없으면 이미지 없는 카드로 나갑니다. |
+| `image_url` | | 썸네일. 없거나 공백이면 이미지 없는 `textCard`로 나갑니다. |
 | `button_label` | | 버튼 문구. 기본값 `쿠팡에서 보기`, 최대 14자 |
 | `active` | | `false`면 노출되지 않습니다. 기본값 `true` |
 
@@ -210,12 +212,14 @@ MONGODB_URI=mongodb+srv://...
 PORT=5000
 CRAWLER_TIMEOUT_SEC=10
 AD_FETCH_TIMEOUT_SEC=10
+RECOMMEND_INTRO=기숙사 생활에 요긴한 물건들을 모아봤어요.
 ```
 
 - `MONGODB_URI`: MongoDB Atlas 연결 문자열
 - `PORT`: 서버 실행 포트
 - `CRAWLER_TIMEOUT_SEC`: 생활관 홈페이지 요청 제한 시간
 - `AD_FETCH_TIMEOUT_SEC`: 상품 링크에서 정보를 수집할 때의 제한 시간
+- `RECOMMEND_INTRO`: 추천 카드 앞에 붙는 고정 안내 문구. 빈 값으로 두면 카드만 전송합니다.
 
 `add_ad.py`와 `seed_ads.py`는 로컬에서 `.env`의 `MONGODB_URI`로 Atlas에 직접 접속합니다. 실행하려면 Atlas Network Access에 현재 IP가 허용되어 있어야 합니다.
 
