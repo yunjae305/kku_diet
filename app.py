@@ -3,9 +3,10 @@ import json
 import hashlib
 import uuid
 import time
+from urllib.parse import urlsplit
 from dotenv import load_dotenv
 load_dotenv()
-from flask import Flask, request, jsonify, Response
+from flask import Flask, request, jsonify, Response, redirect
 from crawler import get_today_meals, get_tomorrow_meals, get_week_data
 from user_store import get_user_dorm, set_user_dorm
 from ad_store import get_random_ad
@@ -254,6 +255,39 @@ def recommend_api():
         return _make_response("추천 상품을 준비 중입니다. 잠시 후 다시 확인해주세요.")
 
     return _make_ad_response(ad)
+
+
+@app.route('/go/coupang', methods=['GET'])
+def random_coupang_redirect():
+    """커스텀 메뉴에서 DB의 랜덤 쿠팡 상품으로 바로 이동합니다."""
+    try:
+        ad = get_random_ad()
+        link = ad.get("link", "") if ad else ""
+        parsed = urlsplit(link) if isinstance(link, str) else None
+        host = (parsed.hostname or "").lower() if parsed else ""
+        valid_link = (
+            parsed is not None
+            and parsed.scheme == "https"
+            and (host == "coupang.com" or host.endswith(".coupang.com"))
+            and not parsed.username
+            and not parsed.password
+            and not any(char.isspace() for char in link)
+        )
+    except Exception:
+        app.logger.warning("쿠팡 바로가기 상품 조회 실패")
+        valid_link = False
+
+    if valid_link:
+        response = redirect(link, code=302)
+    else:
+        response = Response(
+            "추천 상품을 준비 중입니다. 잠시 후 다시 확인해주세요.",
+            status=503,
+            content_type="text/plain; charset=utf-8",
+        )
+    # 브라우저가 이전 이동 대상을 재사용하지 않도록 매번 새로 조회합니다.
+    response.headers["Cache-Control"] = "no-store"
+    return response
 
 
 @app.route('/health')
